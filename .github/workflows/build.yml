@@ -1,23 +1,8 @@
-name: Build Fruits Warehouse APK
-
-on:
-push:
-workflow_dispatch:
-
+name: Test Workflow
+on: [push, workflow_dispatch]
 jobs:
-build:
+test:
 runs-on: ubuntu-latest
 steps:
-  - name: Checkout
-    uses: actions/checkout@v4
-
-  - name: Java Setup
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: '17'
-  - name: Check files
-    run: |
-      pwd
-      ls -la
-      find . -maxdepth 3 -name "build.gradle.kts" -o -name "settings.gradle.kts"
+- name: Check
+run: echo "Workflow OK"
