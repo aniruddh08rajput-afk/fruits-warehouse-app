@@ -1,8 +1,7 @@
-name: Build Fruits Warehouse APK
-on: [push, workflow_dispatch]
+name: Test Workflow
+on: [push]
 jobs:
-build:
+test:
 runs-on: ubuntu-latest
 steps:
-- uses: actions/checkout@v4
-- run: echo "Workflow YAML is valid" 
+- run: echo "Hello"
