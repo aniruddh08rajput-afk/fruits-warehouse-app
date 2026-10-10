@@ -1,7 +1,37 @@
-name: Test Workflow
-on: [push]
+name: Build Fruits Warehouse APK
+on: [push, workflow_dispatch]
+
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Hello"
+build:
+runs-on: ubuntu-latest
+steps:
+- name: Checkout repository
+uses: actions/checkout@v4
+
+  - name: Set up Java
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: '17'
+
+  - name: Set up Gradle
+    uses: gradle/actions/setup-gradle@v4
+    with:
+      gradle-version: '8.7'
+
+  - name: Check Android project
+    run: |
+      ls -la
+      ls -la app
+      cat settings.gradle.kts
+      cat app/build.gradle.kts
+
+  - name: Build APK
+    run: gradle -p app assembleDebug
+
+  - name: Upload APK
+    if: success()
+    uses: actions/upload-artifact@v4
+    with:
+      name: Fruits-Warehouse-APK
+      path: app/build/outputs/apk/debug/*.apk
