@@ -26,7 +26,7 @@ uses: actions/checkout@v4
   - name: Check project files
     run: |
       ls -la
-      find . -maxdepth 4 \( -name "settings.gradle.kts" -o -name "build.gradle.kts" -o -name "gradlew" \) -print
+      find . -maxdepth 4 -name "build.gradle.kts" -print
 
   - name: Build APK
     run: gradle -p app assembleDebug
