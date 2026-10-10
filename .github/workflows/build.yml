@@ -1,8 +1,6 @@
 name: Build Fruits Warehouse APK
 
-on:
-push:
-workflow_dispatch:
+on: [push, workflow_dispatch]
 
 permissions:
 contents: read
@@ -10,10 +8,9 @@ contents: read
 jobs:
 build:
 runs-on: ubuntu-latest
-
 steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+- name: Checkout repository
+uses: actions/checkout@v4
 
   - name: Set up Java
     uses: actions/setup-java@v4
