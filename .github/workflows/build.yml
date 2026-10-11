@@ -1,4 +1,5 @@
 name: Build Fruits Warehouse APK
+
 on: [push, workflow_dispatch]
 
 jobs:
