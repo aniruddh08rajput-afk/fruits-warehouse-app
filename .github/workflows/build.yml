@@ -1,47 +1,33 @@
-name: Build Fruits Warehouse APK
+name: Build Android APK
 
-on: [push, workflow_dispatch]
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v5
+      - name: Set up JDK
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: 17
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Build Debug APK
+      - name: Build APK
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Locate and copy APK
-        run: |
-          mkdir -p apk-output
-          APK_FILE=$(find . -type f -name "*.apk" | head -n 1)
-
-          if [ -z "$APK_FILE" ]; then
-            echo "ERROR: Koi APK file nahi mili."
-            find . -type f -name "*.apk" -print
-            exit 1
-          fi
-
-          echo "APK found: $APK_FILE"
-          cp "$APK_FILE" apk-output/FruitsWarehouse-debug.apk
-          ls -lh apk-output
+      - name: Find APK files
+        if: always()
+        run: find . -type f -name "*.apk" -print
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Fruits-Warehouse-APK
-          path: apk-output/FruitsWarehouse-debug.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
