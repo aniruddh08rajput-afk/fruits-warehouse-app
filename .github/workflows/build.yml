@@ -5,27 +5,28 @@ on: [push, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-- uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-  - uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: '17'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-  - uses: gradle/actions/setup-gradle@v4
-    with:
-      gradle-version: '8.9'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
-  - name: Show Android tasks
-    run: gradle :app:tasks --all
+      - name: Show Android tasks
+        run: gradle :app:tasks --all
 
-  - name: Build APK
-    run: gradle :app:assembleDebug --stacktrace
+      - name: Build APK
+        run: gradle :app:assembleDebug --stacktrace
 
-  - name: Upload APK
-    if: success()
-    uses: actions/upload-artifact@v4
-    with:
-      name: Fruits-Warehouse-APK
-      path: app/build/outputs/apk/debug/*.apk
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fruits-Warehouse-APK
+          path: app/build/outputs/apk/debug/*.apk
