@@ -11,34 +11,30 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import org.json.JSONArray
-import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
 import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.zip.ZipInputStream
 
 data class StockRow(
-    val customer: String,
-    val date: String,
-    val lot: String,
-    val product: String,
-    val brand: String,
-    val count: String,
-    var inward: Double,
-    var outward: Double,
-    var balance: Double,
-    val location: String,
-    var physical: Double? = null
+    val product: String = "",
+    val brand: String = "",
+    val count: Double = 0.0,
+    val inward: Double = 0.0,
+    val outward: Double = 0.0,
+    val balance: Double = 0.0,
+    val location: String = "",
+    val physicalCount: Double? = null,
+    val movement: Double = 0.0
 )
 
 class MainActivity : ComponentActivity() {
@@ -46,7 +42,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                WarehouseApp(this)
+                AppScreen()
             }
         }
     }
@@ -54,321 +50,111 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WarehouseApp(context: Context) {
-    val prefs = remember {
-        context.getSharedPreferences("warehouse", Context.MODE_PRIVATE)
-    }
+fun AppScreen() {
+    val context = LocalContext.current
+    var rows by remember { mutableStateOf(listOf<StockRow>()) }
+    var message by remember { mutableStateOf("Excel file import karo") }
 
-    val rows = remember {
-        mutableStateListOf<StockRow>().apply {
-            addAll(loadRows(prefs.getString("rows", null)))
-        }
-    }
-
-    var tab by remember { mutableStateOf("Stock") }
-    var search by remember { mutableStateOf("") }
-    var selectedLot by remember { mutableStateOf("") }
-    var quantity by remember { mutableStateOf("") }
-    var movement by remember { mutableStateOf("Inward") }
-    var message by remember { mutableStateOf("Excel upload karein.") }
-
-    fun save() {
-        prefs.edit().putString("rows", toJson(rows).toString()).apply()
-    }
-
-    val excelPicker = rememberLauncherForActivityResult(
+    val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
-
-        try {
-            val stream = context.contentResolver.openInputStream(uri)
-
-            if (stream == null) {
-                message = "File open nahi hui."
-                return@rememberLauncherForActivityResult
-            }
-
-            stream.use {
-                val imported = readExcel(it)
-
-                if (imported.isEmpty()) {
-                    message = "Excel me Lot No. aur Balance column check karein."
-                } else {
-                    rows.clear()
-                    rows.addAll(imported)
-                    save()
-                    message = "${imported.size} lots import ho gaye."
+        if (uri != null) {
+            try {
+                context.contentResolver.openInputStream(uri)?.use {
+                    rows = parseXlsx(it)
+                    message = if (rows.isEmpty()) {
+                        "Excel me data nahi mila"
+                    } else {
+                        "${rows.size} rows import ho gayi"
+                    }
                 }
+            } catch (e: Exception) {
+                message = "Import failed: ${e.message}"
             }
-        } catch (e: Exception) {
-            message = "Excel error: ${e.message}"
         }
-    }
-
-    val csvSaver = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("text/csv")
-    ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
-
-        try {
-            val output = context.contentResolver.openOutputStream(uri)
-
-            if (output == null) {
-                message = "CSV file nahi ban payi."
-                return@rememberLauncherForActivityResult
-            }
-
-            output.bufferedWriter().use { writer ->
-                writer.write("Customer,Date,Lot,Product,Brand,Count,In,Out,Balance,Physical,Location
-")
-
-                rows.forEach {
-                    writer.write(
-                        listOf(
-                            it.customer, it.date, it.lot, it.product, it.brand, it.count,
-                            it.inward.toString(), it.outward.toString(), it.balance.toString(),
-                            it.physical?.toString() ?: "", it.location
-                        ).joinToString(",")
-                    )
-                    writer.write("
-")
-                }
-            }
-
-            message = "CSV export ho gayi."
-        } catch (e: Exception) {
-            message = "Export error: ${e.message}"
-        }
-    }
-
-    val visibleRows = rows.filter {
-        search.isBlank() ||
-            it.lot.contains(search, true) ||
-            it.customer.contains(search, true) ||
-            it.product.contains(search, true)
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Fruits Warehouse") }) }
+        topBar = {
+            TopAppBar(title = { Text("Fruits Warehouse") })
+        }
     ) { padding ->
         Column(
-            Modifier
-                .fillMaxSize()
+            modifier = Modifier
                 .padding(padding)
-                .padding(12.dp)
+                .fillMaxSize()
+                .padding(16.dp)
         ) {
             Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf("Stock", "Counting", "Difference", "Movement").forEach {
-                    FilterChip(
-                        selected = tab == it,
-                        onClick = { tab = it },
-                        label = { Text(it) }
-                    )
+                Button(
+                    onClick = {
+                        picker.launch(arrayOf(
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            "application/octet-stream"
+                        ))
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Import Excel")
+                }
+
+                Button(
+                    onClick = {
+                        message = exportCsv(context, rows)
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Export CSV")
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
-            Text(message, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
+            Text(message)
+            Spacer(Modifier.height(12.dp))
 
-            when (tab) {
-                "Stock" -> {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                excelPicker.launch(arrayOf("*/*"))
+            if (rows.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Excel import karne ke baad stock dikhega.")
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(rows) { row ->
+                        StockCard(
+                            row = row,
+                            onPhysicalChange = { value ->
+                                rows = rows.map {
+                                    if (it.product == row.product &&
+                                        it.brand == row.brand &&
+                                        it.location == row.location
+                                    ) {
+                                        it.copy(physicalCount = value)
+                                    } else {
+                                        it
+                                    }
+                                }
                             },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Excel Upload")
-                        }
-
-                        OutlinedButton(onClick = {
-                            csvSaver.launch("warehouse-report.csv")
-                        }) {
-                            Text("CSV")
-                        }
-                    }
-
-                    Spacer(Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = search,
-                        onValueChange = { search = it },
-                        label = { Text("Search Lot / Customer / Product") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
-                    Spacer(Modifier.height(8.dp))
-
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(visibleRows) { row ->
-                            Card(Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(12.dp)) {
-                                    Text("LOT ${row.lot}", fontWeight = FontWeight.Bold)
-                                    Text(row.product)
-                                    Text("Customer: ${row.customer}")
-                                    Text("Balance: ${row.balance}")
-                                    Text("Location: ${row.location}")
-                                }
-                            }
-                        }
-                    }
-                }
-
-                "Counting" -> {
-                    OutlinedTextField(
-                        value = selectedLot,
-                        onValueChange = { selectedLot = it },
-                        label = { Text("Lot Number") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
-                    Spacer(Modifier.height(8.dp))
-
-                    val found = rows.filter {
-                        selectedLot.isBlank() || it.lot.contains(selectedLot, true)
-                    }
-
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(found) { row ->
-                            var text by remember(row.lot) {
-                                mutableStateOf(row.physical?.toString() ?: "")
-                            }
-
-                            Card(Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(12.dp)) {
-                                    Text("LOT ${row.lot}", fontWeight = FontWeight.Bold)
-                                    Text("System Balance: ${row.balance}")
-
-                                    OutlinedTextField(
-                                        value = text,
-                                        onValueChange = {
-                                            text = it
-                                            row.physical = it.toDoubleOrNull()
-                                            save()
-                                        },
-                                        label = { Text("Physical Count") },
-                                        keyboardOptions = KeyboardOptions(
-                                            keyboardType = KeyboardType.Decimal
-                                        ),
-                                        modifier = Modifier.fillMaxWidth(),
-                                        singleLine = true
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                "Difference" -> {
-                    val diffRows = rows.filter {
-                        it.physical != null && it.physical != it.balance
-                    }
-
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(diffRows) { row ->
-                            Card(Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(12.dp)) {
-                                    Text("LOT ${row.lot}", fontWeight = FontWeight.Bold)
-                                    Text("System: ${row.balance}")
-                                    Text("Physical: ${row.physical}")
-                                    Text("Difference: ${(row.physical ?: 0.0) - row.balance}")
-
-                                    Button(onClick = {
-                                        row.balance = row.physical ?: row.balance
-                                        save()
-                                        message = "Lot ${row.lot} balance update ho gaya."
-                                    }) {
-                                        Text("Approve")
+                            onMovementChange = { value ->
+                                rows = rows.map {
+                                    if (it.product == row.product &&
+                                        it.brand == row.brand &&
+                                        it.location == row.location
+                                    ) {
+                                        it.copy(movement = value)
+                                    } else {
+                                        it
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-
-                else -> {
-                    OutlinedTextField(
-                        value = selectedLot,
-                        onValueChange = { selectedLot = it },
-                        label = { Text("Lot Number") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
-                    Spacer(Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = quantity,
-                        onValueChange = { quantity = it },
-                        label = { Text("Quantity") },
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Decimal
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
-                    Spacer(Modifier.height(8.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        FilterChip(
-                            selected = movement == "Inward",
-                            onClick = { movement = "Inward" },
-                            label = { Text("Inward") }
                         )
-
-                        FilterChip(
-                            selected = movement == "Outward",
-                            onClick = { movement = "Outward" },
-                            label = { Text("Outward") }
-                        )
-                    }
-
-                    Spacer(Modifier.height(8.dp))
-
-                    Button(
-                        onClick = {
-                            val row = rows.firstOrNull {
-                                it.lot.equals(selectedLot.trim(), true)
-                            }
-                            val qty = quantity.toDoubleOrNull()
-
-                            if (row == null || qty == null || qty <= 0) {
-                                message = "Sahi Lot aur Quantity daalein."
-                                return@Button
-                            }
-
-                            if (movement == "Inward") {
-                                row.inward += qty
-                                row.balance += qty
-                            } else {
-                                if (qty > row.balance) {
-                                    message = "Outward balance se zyada hai."
-                                    return@Button
-                                }
-
-                                row.outward += qty
-                                row.balance -= qty
-                            }
-
-                            save()
-                            message = "$movement saved for Lot ${row.lot}."
-                            quantity = ""
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Save $movement")
                     }
                 }
             }
@@ -376,186 +162,268 @@ fun WarehouseApp(context: Context) {
     }
 }
 
-private fun toJson(rows: List<StockRow>): JSONArray {
-    return JSONArray().apply {
-        rows.forEach {
-            put(
-                JSONObject().apply {
-                    put("customer", it.customer)
-                    put("date", it.date)
-                    put("lot", it.lot)
-                    put("product", it.product)
-                    put("brand", it.brand)
-                    put("count", it.count)
-                    put("inward", it.inward)
-                    put("outward", it.outward)
-                    put("balance", it.balance)
-                    put("location", it.location)
+@Composable
+fun StockCard(
+    row: StockRow,
+    onPhysicalChange: (Double) -> Unit,
+    onMovementChange: (Double) -> Unit
+) {
+    var physicalText by remember(row) {
+        mutableStateOf(row.physicalCount?.toString() ?: "")
+    }
+    var movementText by remember(row) {
+        mutableStateOf(if (row.movement == 0.0) "" else row.movement.toString())
+    }
 
-                    if (it.physical == null) {
-                        put("physical", JSONObject.NULL)
-                    } else {
-                        put("physical", it.physical)
-                    }
+    Card {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                text = row.product.ifBlank { "Unnamed product" },
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text("Brand: ${row.brand.ifBlank { "-" }}")
+            Text("Location: ${row.location.ifBlank { "-" }}")
+            Text("System count: ${row.count}")
+            Text("Inward: ${row.inward} | Outward: ${row.outward}")
+            Text("Balance: ${row.balance}")
+
+            Spacer(Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = physicalText,
+                onValueChange = {
+                    physicalText = it
+                    onPhysicalChange(it.toDoubleOrNull() ?: 0.0)
+                },
+                label = { Text("Physical count") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = movementText,
+                onValueChange = {
+                    movementText = it
+                    onMovementChange(it.toDoubleOrNull() ?: 0.0)
+                },
+                label = { Text("Movement (+ inward / - outward)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            val difference = (row.physicalCount ?: row.count) - row.count
+            Text(
+                text = "Difference: $difference",
+                color = if (difference == 0.0) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.error
                 }
             )
         }
     }
 }
 
-private fun loadRows(json: String?): List<StockRow> {
-    if (json.isNullOrBlank()) return emptyList()
-
-    return try {
-        val array = JSONArray(json)
-
-        (0 until array.length()).map {
-            val obj = array.getJSONObject(it)
-
-            StockRow(
-                customer = obj.optString("customer"),
-                date = obj.optString("date"),
-                lot = obj.optString("lot"),
-                product = obj.optString("product"),
-                brand = obj.optString("brand"),
-                count = obj.optString("count"),
-                inward = obj.optDouble("inward"),
-                outward = obj.optDouble("outward"),
-                balance = obj.optDouble("balance"),
-                location = obj.optString("location"),
-                physical = if (obj.isNull("physical")) null else obj.optDouble("physical")
-            )
-        }
-    } catch (_: Exception) {
-        emptyList()
-    }
-}
-
-private fun readExcel(input: InputStream): List<StockRow> {
-    val files = mutableMapOf<String, ByteArray>()
+private fun parseXlsx(input: InputStream): List<StockRow> {
+    val files = HashMap<String, ByteArray>()
 
     ZipInputStream(input).use { zip ->
-        while (true) {
-            val entry = zip.nextEntry ?: break
-
-            if (
-                entry.name == "xl/sharedStrings.xml" ||
-                entry.name == "xl/worksheets/sheet1.xml"
-            ) {
-                val output = ByteArrayOutputStream()
-                zip.copyTo(output)
-                files[entry.name] = output.toByteArray()
+        var entry = zip.nextEntry
+        while (entry != null) {
+            if (!entry.isDirectory) {
+                files[entry.name] = zip.readBytes()
             }
-
-            zip.closeEntry()
+            entry = zip.nextEntry
         }
     }
 
-    val sheet = files["xl/worksheets/sheet1.xml"] ?: return emptyList()
-    val shared = files["xl/sharedStrings.xml"]?.let { readSharedStrings(it) } ?: emptyList()
-    val sheetRows = readSheet(sheet, shared)
+    val sharedStrings = files["xl/sharedStrings.xml"]
+        ?.let { parseSharedStrings(it) }
+        ?: emptyList()
 
-    var customer = ""
-    var headers: Map<Int, String>? = null
-    val result = mutableListOf<StockRow>()
+    val sheetFile = files.keys.firstOrNull {
+        it.startsWith("xl/worksheets/sheet") && it.endsWith(".xml")
+    } ?: return emptyList()
 
-    sheetRows.forEach { cells ->
-        val text = cells.values.joinToString(" ")
+    val sheet = files[sheetFile] ?: return emptyList()
+    val table = parseSheet(sheet, sharedStrings)
+    if (table.isEmpty()) return emptyList()
 
-        if (text.contains("Customer Name", true)) {
-            customer = cells.values.lastOrNull {
-                it.isNotBlank() && !it.contains("Customer Name", true)
-            } ?: "Unknown Customer"
-            return@forEach
-        }
-
-        if (
-            cells.values.any { it.contains("Lot", true) } &&
-            cells.values.any { it.contains("Balance", true) }
-        ) {
-            headers = cells.mapValues { it.value.lowercase(Locale.ROOT) }
-            return@forEach
-        }
-
-        val head = headers ?: return@forEach
-
-        fun value(vararg names: String): String {
-            val wanted = names.map { it.lowercase(Locale.ROOT) }
-
-            val match = head.entries.firstOrNull { (_, header) ->
-                wanted.any { header.contains(it) }
+    val header = table.first()
+    fun col(name: String): String {
+        val target = name.lowercase()
+        header.forEach { (index, value) ->
+            if (value.lowercase().trim() == target) {
+                return table.getOrNull(1)?.get(index) ?: ""
             }
+        }
+        return ""
+    }
 
-            return match?.key?.let { cells[it] ?: "" } ?: ""
+    return table.drop(1).map { current ->
+        fun value(name: String): String {
+            val target = name.lowercase()
+            header.forEach { (index, headerValue) ->
+                if (headerValue.lowercase().trim() == target) {
+                    return current[index] ?: ""
+                }
+            }
+            return ""
         }
 
-        val lot = value("lot no", "lot number", "lot")
+        val count = value("count").toNumber()
+        val inward = value("inward").toNumber()
+        val outward = value("outward").toNumber()
+        val balance = value("balance").toNumber()
 
-        if (lot.isBlank() || lot.equals("total", true)) return@forEach
-
-        result.add(
-            StockRow(
-                customer = customer.ifBlank { "Unknown Customer" },
-                date = value("date"),
-                lot = lot,
-                product = value("product name", "product"),
-                brand = value("brand"),
-                count = value("count"),
-                inward = value("in", "inward").toDoubleOrNull() ?: 0.0,
-                outward = value("out", "outward").toDoubleOrNull() ?: 0.0,
-                balance = value("balance").toDoubleOrNull() ?: 0.0,
-                location = value("location")
-            )
+        StockRow(
+            product = value("product"),
+            brand = value("brand"),
+            count = count,
+            inward = inward,
+            outward = outward,
+            balance = if (balance != 0.0) balance else count + inward - outward,
+            location = value("location")
         )
+    }
+}
+
+private fun parseSharedStrings(bytes: ByteArray): List<String> {
+    val result = mutableListOf<String>()
+    val parser = Xml.newPullParser()
+    parser.setInput(ByteArrayInputStream(bytes), "UTF-8")
+
+    var event = parser.eventType
+    var inside = false
+    val builder = StringBuilder()
+
+    while (event != XmlPullParser.END_DOCUMENT) {
+        when (event) {
+            XmlPullParser.START_TAG -> {
+                if (parser.name == "si") {
+                    inside = true
+                    builder.clear()
+                }
+            }
+            XmlPullParser.TEXT -> {
+                if (inside) builder.append(parser.text)
+            }
+            XmlPullParser.END_TAG -> {
+                if (parser.name == "si") {
+                    result.add(builder.toString())
+                    inside = false
+                }
+            }
+        }
+        event = parser.next()
     }
 
     return result
 }
 
-private fun readSheet(
+private fun parseSheet(
     bytes: ByteArray,
     shared: List<String>
 ): List<Map<Int, String>> {
+    val rows = mutableListOf<Map<Int, String>>()
     val parser = Xml.newPullParser()
     parser.setInput(ByteArrayInputStream(bytes), "UTF-8")
 
-    val rows = mutableListOf<Map<Int, String>>()
-    var row = mutableMapOf<Int, String>()
-    var cellRef = ""
-    var cellType = ""
-    var value = StringBuilder()
-    var reading = false
-
     var event = parser.eventType
+    var currentRow = mutableMapOf<Int, String>()
+    var currentCell = ""
+    var currentType = ""
 
     while (event != XmlPullParser.END_DOCUMENT) {
         when (event) {
-            XmlPullParser.START_TAG -> when (parser.name) {
-                "row" -> row = mutableMapOf()
-                "c" -> {
-                    cellRef = parser.getAttributeValue(null, "r") ?: ""
-                    cellType = parser.getAttributeValue(null, "t") ?: ""
-                    value = StringBuilder()
-                }
-                "v", "t" -> reading = true
-            }
-
-            XmlPullParser.TEXT -> if (reading) value.append(parser.text)
-
-            XmlPullParser.END_TAG -> when (parser.name) {
-                "v", "t" -> reading = false
-
-                "c" -> {
-                    val index = columnIndex(cellRef)
-                    val raw = value.toString().trim()
-
-                    val finalValue = when (cellType) {
-                        "s" -> shared.getOrNull(raw.toIntOrNull() ?: -1) ?: ""
-                        else -> raw
+            XmlPullParser.START_TAG -> {
+                when (parser.name) {
+                    "row" -> currentRow = mutableMapOf()
+                    "c" -> {
+                        currentCell = parser.getAttributeValue(null, "r") ?: ""
+                        currentType = parser.getAttributeValue(null, "t") ?: ""
                     }
-
-                    if (index >= 0) row[index] = finalValue
+                    "v" -> {
+                        val value = parser.nextText()
+                        val columnIndex = cellColumnIndex(currentCell)
+                        val finalValue = if (currentType == "s") {
+                            shared.getOrNull(value.toIntOrNull() ?: -1) ?: value
+                        } else {
+                            value
+                        }
+                        currentRow[columnIndex] = finalValue
+                    }
                 }
+            }
+            XmlPullParser.END_TAG -> {
+                if (parser.name == "row" && currentRow.isNotEmpty()) {
+                    rows.add(currentRow.toMap())
+                }
+            }
+        }
+        event = parser.next()
+    }
 
-                "row" -> if (row.isNotEmpty()) rows.add(row.toMap())
-                
+    return rows
+}
+
+private fun cellColumnIndex(cellReference: String): Int {
+    var index = 0
+    for (char in cellReference) {
+        if (!char.isLetter()) break
+        index = index * 26 + (char.uppercaseChar() - 'A' + 1)
+    }
+    return index - 1
+}
+
+private fun String.toNumber(): Double {
+    return trim().replace(",", "").toDoubleOrNull() ?: 0.0
+}
+
+private fun exportCsv(context: Context, rows: List<StockRow>): String {
+    if (rows.isEmpty()) return "Pehle Excel import karo"
+
+    return try {
+        val fileName = "fruits_warehouse_" +
+            SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
+                .format(Date()) + ".csv"
+
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+            put(MediaStore.Downloads.MIME_TYPE, "text/csv")
+        }
+
+        val uri = context.contentResolver.insert(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            values
+        ) ?: return "CSV file create nahi hui"
+
+        context.contentResolver.openOutputStream(uri)?.use { output ->
+            output.bufferedWriter().use { writer ->
+                writer.appendLine("Product,Brand,System Count,Inward,Outward,Balance,Location,Physical Count,Difference,Movement")
+                rows.forEach { row ->
+                    val physical = row.physicalCount ?: row.count
+                    val difference = physical - row.count
+                    writer.appendLine(
+                        listOf(
+                            row.product,
+                            row.brand,
+                            row.count,
+                            row.inward,
+                            row.outward,
+                            row.balance,
+                            row.location,
+                            physical,
+                            difference,
+                            row.movement
+                        ).joinToString(",")
+                    )
+                }
+            }
+        }
+
+        "CSV export ho gayi: $fileName"
+    } catch (e: Exception) {
+        "CSV export failed: ${e.message}"
+    }
+}
