@@ -1,39 +1,46 @@
-
 name: Build Fruits Warehouse APK
 
 on:
-  push:
-  workflow_dispatch:
+push:
+workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+build:
+runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+steps:
+  - name: Checkout
+    uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+  - name: Set up Java
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: '17'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+  - name: Set up Gradle
+    uses: gradle/actions/setup-gradle@v4
+    with:
+      gradle-version: '8.9'
 
-      - name: Check Gradle tasks
-        run: gradle tasks --all
+  - name: Check project files
+    run: |
+      echo "=== ROOT FILES ==="
+      ls -la
+      echo "=== APP FILES ==="
+      ls -la app
+      echo "=== APP GRADLE FILE ==="
+      cat app/build.gradle.kts
 
-      - name: Build APK
-        run: gradle :app:assembleDebug --stacktrace
+  - name: Check Android Gradle tasks
+    run: gradle :app:tasks --all --stacktrace
 
-      - name: Upload APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Fruits-Warehouse-APK
-          path: app/build/outputs/apk/debug/*.apk
-          
+  - name: Build APK
+    run: gradle :app:assembleDebug --stacktrace
+
+  - name: Upload APK
+    if: success()
+    uses: actions/upload-artifact@v4
+    with:
+      name: Fruits-Warehouse-APK
+      path: app/build/outputs/apk/debug/*.apk
